@@ -34,6 +34,8 @@ public sealed class EntityFixSw2(ISwiftlyCore core) : BasePlugin(core)
     private readonly ConcurrentDictionary<int, IgniteState> _igniteStates = [];
     private Dictionary<string, float>? _mapGravity;
 
+    private Dictionary<int, int> _activateTick = [];
+
     private CancellationTokenSource? _igniteTimer;
     private CancellationTokenSource? _viewControlTimer;
 
@@ -123,7 +125,7 @@ public sealed class EntityFixSw2(ISwiftlyCore core) : BasePlugin(core)
             if (IsGameUi(entity))
             {
                 var logicCase = entity.As<CLogicCase>();
-                foreach (var state in _gameUiStates.Where(x => x.Entity == logicCase).ToList())
+                foreach (var state in _gameUiStates.Where(x => x.Entity.Equals(logicCase)).ToList())
                 {
                     try
                     {
@@ -144,7 +146,7 @@ public sealed class EntityFixSw2(ISwiftlyCore core) : BasePlugin(core)
             if (IsPointViewControl(entity))
             {
                 var relay = entity.As<CLogicRelay>();
-                foreach (var state in _viewControls.Where(x => x.Entity == relay).ToList())
+                foreach (var state in _viewControls.Where(x => x.Entity.Equals(relay)).ToList())
                 {
                     try { DisableCameraAll(state); } catch { }
                     _viewControls.Remove(state);
@@ -157,7 +159,7 @@ public sealed class EntityFixSw2(ISwiftlyCore core) : BasePlugin(core)
             {
                 try
                 {
-                    if (viewControl.Target != null && viewControl.Target == entity)
+                    if (viewControl.Target != null && viewControl.Target.Equals(entity))
                     {
                         DisableCameraAll(viewControl);
                         viewControl.Target = null;
@@ -262,6 +264,12 @@ public sealed class EntityFixSw2(ISwiftlyCore core) : BasePlugin(core)
                         continue;
                     }
 
+                    _activateTick.TryGetValue(@event.PlayerId, out int tick);
+                    if ((state.Entity.Spawnflags & 128) != 0 && tick < Core.Engine.GlobalVars.TickCount && @event.Pressed && @event.Key == KeyKind.E)
+                    {
+                        SafeAcceptInput(state.Entity, "Deactivate", state.Activator, state.Entity, null);
+                        continue;
+                    }
                     if ((state.Entity.Spawnflags & 256) != 0 && @event.Pressed && IsJumpKey(@event.Key))
                     {
                         SafeAcceptInput(state.Entity, "Deactivate", state.Activator, state.Entity, null);
@@ -524,7 +532,7 @@ public sealed class EntityFixSw2(ISwiftlyCore core) : BasePlugin(core)
 
     private void HandlePointViewControlInput(CLogicRelay relay, string input, CEntityInstance? activator)
     {
-        var state = _viewControls.FirstOrDefault(x => x.Entity == relay);
+        var state = _viewControls.FirstOrDefault(x => x.Entity.Equals(relay));
         if (state == null)
         {
             return;
@@ -580,11 +588,17 @@ public sealed class EntityFixSw2(ISwiftlyCore core) : BasePlugin(core)
             return;
         }
 
-        var state = _gameUiStates.FirstOrDefault(x => x.Entity == gameUi);
+        var state = _gameUiStates.FirstOrDefault(x => x.Entity.Equals(gameUi));
         if (state == null)
         {
             state = new GameUiState(gameUi);
             _gameUiStates.Add(state);
+        }
+
+        if (activate)
+        {
+            var player = ResolvePlayer(activator);
+            if (player != null) _activateTick[player.PlayerID] = Core.Engine.GlobalVars.TickCount;
         }
 
         if ((gameUi.Spawnflags & 32) != 0)
@@ -699,7 +713,7 @@ public sealed class EntityFixSw2(ISwiftlyCore core) : BasePlugin(core)
 
             if (enable)
             {
-                if (target.Entity == null || target.Entity.EntityHandle == null) return;
+                if (target.Entity == null) return;
                 pawn.CameraServices.ViewEntity.Raw = target.Entity.EntityHandle.Raw;
             }
             else
